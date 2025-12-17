@@ -1,0 +1,611 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "CINA Dex Backend API",
+    "version": "1.0.0",
+    "description": "RESTful API for CINA Dex lending protocol (BSC). All numeric on-chain values are strings in smallest units (wei / token decimals)."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8080"
+    }
+  ],
+  "paths": {
+    "/api/v1/health": {
+      "get": {
+        "summary": "Health check",
+        "responses": {
+          "200": {
+            "description": "Service is healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pool/state": {
+      "get": {
+        "summary": "Get pool state",
+        "description": "Returns aggregated state of the lending pool.",
+        "responses": {
+          "200": {
+            "description": "Pool state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Response"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/PoolState"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users/{address}/position": {
+      "get": {
+        "summary": "Get user position",
+        "parameters": [
+          {
+            "name": "address",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "0x..."
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User position",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Response"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/UserPosition"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users/{address}/loans": {
+      "get": {
+        "summary": "List user loans",
+        "parameters": [
+          {
+            "name": "address",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "0x..."
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User loans",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Response"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/Loan"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/loans/{loanId}": {
+      "get": {
+        "summary": "Get loan details",
+        "parameters": [
+          {
+            "name": "loanId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "uint64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Loan details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Response"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/Loan"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/loans/{loanId}/health": {
+      "get": {
+        "summary": "Get loan health",
+        "parameters": [
+          {
+            "name": "loanId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "uint64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Loan health",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Response"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/LoanHealth"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tx/deposit": {
+      "post": {
+        "summary": "Build deposit tx",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "userAddress": {
+                    "type": "string",
+                    "example": "0x..."
+                  },
+                  "amount": {
+                    "type": "string",
+                    "example": "1000000000",
+                    "description": "USDT amount in smallest units (6 decimals)."
+                  }
+                },
+                "required": [
+                  "amount"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Deposit transaction payloads",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Response"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/DepositTx"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tx/borrow": {
+      "post": {
+        "summary": "Build borrow tx",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "userAddress": {
+                    "type": "string",
+                    "example": "0x..."
+                  },
+                  "amount": {
+                    "type": "string",
+                    "example": "100000000",
+                    "description": "Borrow USDT amount (6 decimals)."
+                  },
+                  "duration": {
+                    "type": "integer",
+                    "format": "uint64",
+                    "example": 86400
+                  },
+                  "collateralWei": {
+                    "type": "string",
+                    "example": "1000000000000000000",
+                    "description": "BNB collateral in wei."
+                  }
+                },
+                "required": [
+                  "amount",
+                  "duration",
+                  "collateralWei"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Borrow transaction payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Response"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/BorrowTx"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tx/repay": {
+      "post": {
+        "summary": "Build repay tx",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "userAddress": {
+                    "type": "string",
+                    "example": "0x..."
+                  },
+                  "loanId": {
+                    "type": "integer",
+                    "format": "uint64"
+                  }
+                },
+                "required": [
+                  "loanId"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Repay transaction payloads",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Response"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/RepayTx"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tx/liquidate": {
+      "post": {
+        "summary": "Build liquidate tx",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "userAddress": {
+                    "type": "string",
+                    "example": "0x..."
+                  },
+                  "loanId": {
+                    "type": "integer",
+                    "format": "uint64"
+                  }
+                },
+                "required": [
+                  "loanId"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Liquidate transaction payloads",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/Response"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/LiquidateTx"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Response": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "integer",
+            "example": 0
+          },
+          "message": {
+            "type": "string",
+            "example": "success"
+          },
+          "data": {}
+        }
+      },
+      "PoolState": {
+        "type": "object",
+        "properties": {
+          "totalAssets": {
+            "type": "string"
+          },
+          "totalBorrowed": {
+            "type": "string"
+          },
+          "availableLiquidity": {
+            "type": "string"
+          },
+          "exchangeRate": {
+            "type": "string"
+          },
+          "totalFTokenSupply": {
+            "type": "string"
+          }
+        }
+      },
+      "Loan": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "uint64"
+          },
+          "borrower": {
+            "type": "string"
+          },
+          "collateralAmount": {
+            "type": "string"
+          },
+          "principal": {
+            "type": "string"
+          },
+          "repaymentAmount": {
+            "type": "string"
+          },
+          "startTime": {
+            "type": "integer",
+            "format": "uint64"
+          },
+          "duration": {
+            "type": "integer",
+            "format": "uint64"
+          },
+          "isActive": {
+            "type": "boolean"
+          }
+        }
+      },
+      "LoanHealth": {
+        "type": "object",
+        "properties": {
+          "ltv": {
+            "type": "string"
+          },
+          "isLiquidatable": {
+            "type": "boolean"
+          }
+        }
+      },
+      "UserPosition": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "loanIds": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "uint64"
+            }
+          },
+          "totalPrincipal": {
+            "type": "string"
+          },
+          "totalRepayment": {
+            "type": "string"
+          },
+          "totalCollateral": {
+            "type": "string"
+          }
+        }
+      },
+      "TxCall": {
+        "type": "object",
+        "properties": {
+          "to": {
+            "type": "string",
+            "example": "0x..."
+          },
+          "data": {
+            "type": "string",
+            "example": "0x..."
+          },
+          "value": {
+            "type": "string",
+            "example": "0"
+          }
+        }
+      },
+      "DepositTx": {
+        "type": "object",
+        "properties": {
+          "approve": {
+            "$ref": "#/components/schemas/TxCall"
+          },
+          "deposit": {
+            "$ref": "#/components/schemas/TxCall"
+          }
+        }
+      },
+      "BorrowTx": {
+        "type": "object",
+        "properties": {
+          "borrow": {
+            "$ref": "#/components/schemas/TxCall"
+          }
+        }
+      },
+      "RepayTx": {
+        "type": "object",
+        "properties": {
+          "approve": {
+            "$ref": "#/components/schemas/TxCall"
+          },
+          "repay": {
+            "$ref": "#/components/schemas/TxCall"
+          }
+        }
+      },
+      "LiquidateTx": {
+        "type": "object",
+        "properties": {
+          "approve": {
+            "$ref": "#/components/schemas/TxCall"
+          },
+          "liquidate": {
+            "$ref": "#/components/schemas/TxCall"
+          }
+        }
+      }
+    }
+  }
+}
+
