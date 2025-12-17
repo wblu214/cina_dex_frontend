@@ -64,6 +64,13 @@ export interface LiquidateTx {
   liquidate: TxCall;
 }
 
+// MockUSDT mint tx (testnet helper).
+export interface BuildMockUsdtMintRequest {
+  to: string;
+  // USDT amount in smallest units (6 decimals).
+  amount: string;
+}
+
 // Use same-origin relative path and let Next.js proxy to the Go backend.
 // This avoids browser CORS issues.
 const API_BASE = "";
@@ -168,4 +175,10 @@ export async function buildLiquidateTx(
   payload: BuildLiquidateRequest
 ): Promise<LiquidateTx> {
   return apiPost<LiquidateTx>("/api/v1/tx/liquidate", payload);
+}
+
+export async function buildMockUsdtMintTx(
+  payload: BuildMockUsdtMintRequest
+): Promise<TxCall> {
+  return apiPost<TxCall>("/api/v1/tx/mock-usdt/mint", payload);
 }

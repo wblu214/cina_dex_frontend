@@ -7,9 +7,10 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
-import { parseUnits } from 'viem';
+import { formatUnits, parseUnits } from 'viem';
 import { useState } from 'react';
 import {
+  buildMockUsdtMintTx,
   getPoolState,
   getUserLoans,
   getUserPosition,
@@ -34,6 +35,7 @@ const Home: NextPage = () => {
   const { sendTransactionAsync } = useSendTransaction();
   const queryClient = useQueryClient();
 
+  const [mintMockUsdtAmount, setMintMockUsdtAmount] = useState('');
   const [depositAmount, setDepositAmount] = useState('');
   const [borrowAmount, setBorrowAmount] = useState('');
   const [borrowDurationDays, setBorrowDurationDays] = useState('7');
@@ -43,6 +45,7 @@ const Home: NextPage = () => {
 
   const isConnected = Boolean(address);
   const isSupportedChain = chainId ? SUPPORTED_CHAIN_IDS.includes(chainId) : false;
+  const isBscTestnet = chainId === 97;
 
   const {
     data: poolState,
@@ -94,7 +97,49 @@ const Home: NextPage = () => {
     return parseUnits(trimmed as `${number}`, 18).toString();
   }
 
+  function shortAddress(addr?: string | null): string {
+    if (!addr) return '';
+    if (addr.length <= 10) return addr;
+    return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+  }
+
+  function formatUsdtAmount(value: string): string {
+    try {
+      return formatUnits(BigInt(value || '0'), 6);
+    } catch {
+      return value;
+    }
+  }
+
+  function formatBnbAmountFromWei(value: string): string {
+    try {
+      return formatUnits(BigInt(value || '0'), 18);
+    } catch {
+      return value;
+    }
+  }
+
   // Mutations
+  const mintMockUsdtMutation = useMutation({
+    mutationFn: async () => {
+      if (!address) throw new Error('钱包未连接');
+      const amountUnits = usdtToUnits(mintMockUsdtAmount);
+      if (amountUnits === '0') {
+        throw new Error('请输入大于 0 的金额');
+      }
+      const tx = await buildMockUsdtMintTx({
+        to: address,
+        amount: amountUnits,
+      });
+      await sendTransactionAsync(toTxArgs(tx));
+    },
+    onSuccess: () => {
+      setMintMockUsdtAmount('');
+      queryClient.invalidateQueries({ queryKey: ['userPosition', address] });
+      queryClient.invalidateQueries({ queryKey: ['userLoans', address] });
+    },
+  });
+
   const depositMutation = useMutation({
     mutationFn: async () => {
       if (!address) throw new Error('钱包未连接');
@@ -242,15 +287,15 @@ const Home: NextPage = () => {
             <div className={styles.grid}>
               <div className={styles.card}>
                 <h2>总资产 (USDT)</h2>
-                <p>{poolState.totalAssets}</p>
+                <p>{formatUsdtAmount(poolState.totalAssets)}</p>
               </div>
               <div className={styles.card}>
                 <h2>总借出 (USDT)</h2>
-                <p>{poolState.totalBorrowed}</p>
+                <p>{formatUsdtAmount(poolState.totalBorrowed)}</p>
               </div>
               <div className={styles.card}>
                 <h2>可用流动性 (USDT)</h2>
-                <p>{poolState.availableLiquidity}</p>
+                <p>{formatUsdtAmount(poolState.availableLiquidity)}</p>
               </div>
               <div className={styles.card}>
                 <h2>FToken 汇率</h2>
@@ -278,6 +323,43 @@ const Home: NextPage = () => {
           )}
           {isConnected && isSupportedChain && (
             <div className={styles.grid}>
+              {isBscTestnet && (
+                <div className={styles.card}>
+                  <h3>测试网领 MockUSDT</h3>
+                  <p style={{ fontSize: '0.9rem', marginBottom: '0.5rem' }}>
+                    仅用于 BSC 测试网调试，给当前钱包地址 mint MockUSDT。
+                  </p>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.000001"
+                    placeholder="领取 USDT 数量"
+                    value={mintMockUsdtAmount}
+                    onChange={(e) => setMintMockUsdtAmount(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '0.5rem',
+                      marginBottom: '0.5rem',
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => mintMockUsdtMutation.mutate()}
+                    disabled={
+                      mintMockUsdtMutation.isPending ||
+                      !mintMockUsdtAmount.trim()
+                    }
+                  >
+                    {mintMockUsdtMutation.isPending ? '提交中...' : '领 MockUSDT'}
+                  </button>
+                  {mintMockUsdtMutation.error && (
+                    <p style={{ color: 'red', marginTop: '0.5rem' }}>
+                      {String(mintMockUsdtMutation.error)}
+                    </p>
+                  )}
+                </div>
+              )}
+
               <div className={styles.card}>
                 <h3>存款 USDT</h3>
                 <p style={{ fontSize: '0.9rem', marginBottom: '0.5rem' }}>
@@ -457,6 +539,16 @@ const Home: NextPage = () => {
           )}
           {isConnected && isSupportedChain && (
             <>
+              <p
+                style={{
+                  fontSize: '0.9rem',
+                  color: '#666',
+                  marginBottom: '0.75rem',
+                }}
+              >
+                说明：下面的“总借款本金 / 总应还 / 总抵押”统计的是你作为借款人开的仓位，单纯存款（LP）
+                不会计入这里。
+              </p>
               {userPositionLoading && <p>加载中...</p>}
               {userPositionError && (
                 <p style={{ color: 'red' }}>
@@ -467,19 +559,24 @@ const Home: NextPage = () => {
                 <div className={styles.grid}>
                   <div className={styles.card}>
                     <h2>地址</h2>
-                    <p>{userPosition.address}</p>
+                    <p
+                      style={{ wordBreak: 'break-all' }}
+                      title={userPosition.address}
+                    >
+                      {shortAddress(userPosition.address)}
+                    </p>
                   </div>
                   <div className={styles.card}>
-                    <h2>总本金 (USDT)</h2>
-                    <p>{userPosition.totalPrincipal}</p>
+                    <h2>总借款本金 (USDT)</h2>
+                    <p>{formatUsdtAmount(userPosition.totalPrincipal)}</p>
                   </div>
                   <div className={styles.card}>
                     <h2>总应还 (USDT)</h2>
-                    <p>{userPosition.totalRepayment}</p>
+                    <p>{formatUsdtAmount(userPosition.totalRepayment)}</p>
                   </div>
                   <div className={styles.card}>
-                    <h2>总抵押 (BNB, wei)</h2>
-                    <p>{userPosition.totalCollateral}</p>
+                    <h2>总抵押 (BNB)</h2>
+                    <p>{formatBnbAmountFromWei(userPosition.totalCollateral)}</p>
                   </div>
                 </div>
               )}
@@ -499,9 +596,13 @@ const Home: NextPage = () => {
                   {userLoans.map((loan) => (
                     <div key={loan.id} className={styles.card}>
                       <h2>贷款 #{loan.id}</h2>
-                      <p>本金 (USDT): {loan.principal}</p>
-                      <p>应还 (USDT): {loan.repaymentAmount}</p>
-                      <p>抵押 (BNB, wei): {loan.collateralAmount}</p>
+                      <p>本金 (USDT): {formatUsdtAmount(loan.principal)}</p>
+                      <p>
+                        应还 (USDT): {formatUsdtAmount(loan.repaymentAmount)}
+                      </p>
+                      <p>
+                        抵押 (BNB): {formatBnbAmountFromWei(loan.collateralAmount)}
+                      </p>
                       <p>是否活跃: {loan.isActive ? '是' : '否'}</p>
                     </div>
                   ))}
