@@ -64,6 +64,19 @@ export interface LiquidateTx {
   liquidate: TxCall;
 }
 
+// Borrow quote: given a desired USDT borrow amount, backend returns required BNB collateral.
+export interface BorrowQuote {
+  borrowAmount: string;
+  collateralWei: string;
+  bnbUsdPrice: string;
+  maxLtvPercent: string;
+}
+
+export interface BuildBorrowQuoteRequest {
+  // USDT amount in smallest units (6 decimals).
+  amount: string;
+}
+
 // MockUSDT mint tx (testnet helper).
 export interface BuildMockUsdtMintRequest {
   to: string;
@@ -77,13 +90,21 @@ const API_BASE = "";
 
 async function apiGet<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, { cache: "no-store" });
+  const json = (await res.json().catch(() => null)) as ApiResponse<T> | null;
+
   if (!res.ok) {
-    throw new Error(`HTTP error: ${res.status}`);
+    const msg = json && typeof json === "object" ? json.message : null;
+    throw new Error(msg || `HTTP error: ${res.status}`);
   }
-  const json = (await res.json()) as ApiResponse<T>;
+
+  if (!json) {
+    throw new Error("invalid api response");
+  }
+
   if (json.code !== 0) {
     throw new Error(json.message || "api error");
   }
+
   return json.data;
 }
 
@@ -93,13 +114,21 @@ async function apiPost<T>(path: string, body: unknown): Promise<T> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+  const json = (await res.json().catch(() => null)) as ApiResponse<T> | null;
+
   if (!res.ok) {
-    throw new Error(`HTTP error: ${res.status}`);
+    const msg = json && typeof json === "object" ? json.message : null;
+    throw new Error(msg || `HTTP error: ${res.status}`);
   }
-  const json = (await res.json()) as ApiResponse<T>;
+
+  if (!json) {
+    throw new Error("invalid api response");
+  }
+
   if (json.code !== 0) {
     throw new Error(json.message || "api error");
   }
+
   return json.data;
 }
 
@@ -175,6 +204,12 @@ export async function buildLiquidateTx(
   payload: BuildLiquidateRequest
 ): Promise<LiquidateTx> {
   return apiPost<LiquidateTx>("/api/v1/tx/liquidate", payload);
+}
+
+export async function getBorrowQuote(
+  payload: BuildBorrowQuoteRequest
+): Promise<BorrowQuote> {
+  return apiPost<BorrowQuote>("/api/v1/borrow/quote", payload);
 }
 
 export async function buildMockUsdtMintTx(

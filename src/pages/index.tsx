@@ -18,12 +18,14 @@ import {
   buildDepositTx,
   buildLiquidateTx,
   buildRepayTx,
+   getBorrowQuote,
   type BorrowTx,
   type DepositTx,
   type LiquidateTx,
   type Loan,
   type PoolState,
   type UserPosition,
+  type BorrowQuote,
   type RepayTx,
 } from '../lib/api';
 import styles from '../styles/Home.module.css';
@@ -39,7 +41,6 @@ const Home: NextPage = () => {
   const [depositAmount, setDepositAmount] = useState('');
   const [borrowAmount, setBorrowAmount] = useState('');
   const [borrowDurationDays, setBorrowDurationDays] = useState('7');
-  const [borrowCollateralBnb, setBorrowCollateralBnb] = useState('');
   const [repayLoanId, setRepayLoanId] = useState('');
   const [liquidateLoanId, setLiquidateLoanId] = useState('');
 
@@ -119,6 +120,33 @@ const Home: NextPage = () => {
     }
   }
 
+  function formatFrom1e18(value: string): string {
+    try {
+      return formatUnits(BigInt(value || '0'), 18);
+    } catch {
+      return value;
+    }
+  }
+
+  const borrowQuoteEnabled =
+    isConnected &&
+    isSupportedChain &&
+    Boolean(address) &&
+    Boolean(borrowAmount.trim());
+
+  const {
+    data: borrowQuote,
+    isLoading: borrowQuoteLoading,
+    error: borrowQuoteError,
+  } = useQuery<BorrowQuote>({
+    queryKey: ['borrowQuote', address, borrowAmount],
+    queryFn: async () => {
+      const amountUnits = usdtToUnits(borrowAmount);
+      return getBorrowQuote({ amount: amountUnits });
+    },
+    enabled: borrowQuoteEnabled,
+  });
+
   // Mutations
   const mintMockUsdtMutation = useMutation({
     mutationFn: async () => {
@@ -165,8 +193,16 @@ const Home: NextPage = () => {
     mutationFn: async () => {
       if (!address) throw new Error('钱包未连接');
       const amountUnits = usdtToUnits(borrowAmount);
-      const collateralWei = bnbToWei(borrowCollateralBnb);
       const durationSeconds = Number(borrowDurationDays) * 24 * 60 * 60;
+      let collateralWei: string;
+
+      if (borrowQuote && borrowQuote.borrowAmount === amountUnits) {
+        collateralWei = borrowQuote.collateralWei;
+      } else {
+        const freshQuote = await getBorrowQuote({ amount: amountUnits });
+        collateralWei = freshQuote.collateralWei;
+      }
+
       const tx: BorrowTx = await buildBorrowTx({
         userAddress: address,
         amount: amountUnits,
@@ -177,7 +213,6 @@ const Home: NextPage = () => {
     },
     onSuccess: () => {
       setBorrowAmount('');
-      setBorrowCollateralBnb('');
       queryClient.invalidateQueries({ queryKey: ['poolState'] });
       queryClient.invalidateQueries({ queryKey: ['userPosition', address] });
       queryClient.invalidateQueries({ queryKey: ['userLoans', address] });
@@ -188,7 +223,7 @@ const Home: NextPage = () => {
     mutationFn: async () => {
       if (!address) throw new Error('钱包未连接');
       const loanId = Number(repayLoanId);
-      if (!Number.isFinite(loanId) || loanId <= 0) {
+      if (!Number.isFinite(loanId) || loanId < 0) {
         throw new Error('请输入有效的 Loan ID');
       }
       const tx: RepayTx = await buildRepayTx({
@@ -210,7 +245,7 @@ const Home: NextPage = () => {
     mutationFn: async () => {
       if (!address) throw new Error('钱包未连接');
       const loanId = Number(liquidateLoanId);
-      if (!Number.isFinite(loanId) || loanId <= 0) {
+      if (!Number.isFinite(loanId) || loanId < 0) {
         throw new Error('请输入有效的 Loan ID');
       }
       const tx: LiquidateTx = await buildLiquidateTx({
@@ -397,7 +432,7 @@ const Home: NextPage = () => {
               <div className={styles.card}>
                 <h3>抵押 BNB 借 USDT</h3>
                 <p style={{ fontSize: '0.9rem', marginBottom: '0.5rem' }}>
-                  输入想借的 USDT 数量、借款天数和抵押的 BNB 数量。
+                  输入想借的 USDT 数量和借款天数，后端会根据当前 BNB 价格和最大抵押率自动计算需要的 BNB 抵押。
                 </p>
                 <input
                   type="number"
@@ -425,27 +460,24 @@ const Home: NextPage = () => {
                     marginBottom: '0.5rem',
                   }}
                 />
-                <input
-                  type="number"
-                  min="0"
-                  step="0.000000000000000001"
-                  placeholder="抵押 BNB 数量"
-                  value={borrowCollateralBnb}
-                  onChange={(e) => setBorrowCollateralBnb(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '0.5rem',
-                    marginBottom: '0.5rem',
-                  }}
-                />
+                {borrowQuoteLoading && <p>计算所需抵押中...</p>}
+                {borrowQuoteError && (
+                  <p style={{ color: 'red' }}>
+                    抵押计算失败：{String(borrowQuoteError)}
+                  </p>
+                )}
+                {borrowQuote && (
+                  <p style={{ fontSize: '0.9rem', marginBottom: '0.5rem' }}>
+                    当前预估：需要抵押约{' '}
+                    {formatBnbAmountFromWei(borrowQuote.collateralWei)} BNB，
+                    BNB 价格约 {formatFrom1e18(borrowQuote.bnbUsdPrice)} USDT，
+                    最大抵押率 {borrowQuote.maxLtvPercent}%。
+                  </p>
+                )}
                 <button
                   type="button"
                   onClick={() => borrowMutation.mutate()}
-                  disabled={
-                    borrowMutation.isPending ||
-                    !borrowAmount.trim() ||
-                    !borrowCollateralBnb.trim()
-                  }
+                  disabled={borrowMutation.isPending || !borrowAmount.trim()}
                 >
                   {borrowMutation.isPending ? '提交中...' : '借款'}
                 </button>
