@@ -1,23 +1,11 @@
 import { getDefaultConfig } from '@rainbow-me/rainbowkit';
-import {
-  arbitrum,
-  base,
-  mainnet,
-  optimism,
-  polygon,
-  sepolia,
-} from 'wagmi/chains';
+import { bsc, bscTestnet } from 'wagmi/chains';
 
+// Only allow BSC mainnet and BSC testnet in the wallet.
 export const config = getDefaultConfig({
-  appName: 'RainbowKit App',
-  projectId: 'YOUR_PROJECT_ID',
-  chains: [
-    mainnet,
-    polygon,
-    optimism,
-    arbitrum,
-    base,
-    ...(process.env.NEXT_PUBLIC_ENABLE_TESTNETS === 'true' ? [sepolia] : []),
-  ],
+  appName: 'CINA Dex Frontend',
+  projectId:
+    process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID ?? 'CINA_DEX_DEMO_PROJECT',
+  chains: [bsc, bscTestnet],
   ssr: true,
 });
