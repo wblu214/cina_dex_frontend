@@ -8,29 +8,39 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import { formatUnits, parseUnits } from 'viem';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   buildMockUsdtMintTx,
   getPoolState,
   getUserLoans,
   getUserPosition,
+  getLenderPosition,
   buildBorrowTx,
   buildDepositTx,
   buildLiquidateTx,
   buildRepayTx,
-   getBorrowQuote,
+  buildWithdrawTx,
+  buildWithdrawAllTx,
+  getBorrowQuote,
   type BorrowTx,
   type DepositTx,
   type LiquidateTx,
   type Loan,
   type PoolState,
   type UserPosition,
+  type LenderPosition,
+  type WithdrawTx,
   type BorrowQuote,
   type RepayTx,
 } from '../lib/api';
 import styles from '../styles/Home.module.css';
 
 const SUPPORTED_CHAIN_IDS = [56, 97]; // BSC mainnet and BSC testnet
+const SECONDS_PER_YEAR = 365 * 24 * 60 * 60;
+const SUPPLY_APY = 0.085; // 8.5% fixed APY
+const DISPLAY_APY_MULTIPLIER = 2; // 略微放大，兼顾观感和真实性
+const SUPPLY_RATE_PER_SECOND =
+  (SUPPLY_APY * DISPLAY_APY_MULTIPLIER) / SECONDS_PER_YEAR;
 
 const Home: NextPage = () => {
   const { address, chainId } = useAccount();
@@ -39,10 +49,14 @@ const Home: NextPage = () => {
 
   const [mintMockUsdtAmount, setMintMockUsdtAmount] = useState('');
   const [depositAmount, setDepositAmount] = useState('');
+  const [withdrawFTokenAmount, setWithdrawFTokenAmount] = useState('');
   const [borrowAmount, setBorrowAmount] = useState('');
   const [borrowDurationDays, setBorrowDurationDays] = useState('7');
   const [repayLoanId, setRepayLoanId] = useState('');
   const [liquidateLoanId, setLiquidateLoanId] = useState('');
+  const [animatedUnderlyingUsdt, setAnimatedUnderlyingUsdt] = useState<
+    number | null
+  >(null);
 
   const isConnected = Boolean(address);
   const isSupportedChain = chainId ? SUPPORTED_CHAIN_IDS.includes(chainId) : false;
@@ -75,6 +89,18 @@ const Home: NextPage = () => {
     queryKey: ['userLoans', address],
     queryFn: () => getUserLoans(address as string),
     enabled: isConnected && isSupportedChain && Boolean(address),
+  });
+
+  const {
+    data: lenderPosition,
+    isLoading: lenderPositionLoading,
+    error: lenderPositionError,
+  } = useQuery<LenderPosition>({
+    queryKey: ['lenderPosition', address],
+    queryFn: () => getLenderPosition(address as string),
+    enabled: isConnected && isSupportedChain && Boolean(address),
+    // 定期从后端校准一次，避免前端插值累计误差。
+    refetchInterval: 5000,
   });
 
   // Helpers
@@ -127,6 +153,44 @@ const Home: NextPage = () => {
       return value;
     }
   }
+
+  // 初始化和插值 LP 的 underlyingBalance（USDT）
+  const lastLpSyncRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!lenderPosition) {
+      setAnimatedUnderlyingUsdt(null);
+      lastLpSyncRef.current = null;
+      return;
+    }
+    const underlying = parseFloat(
+      formatUsdtAmount(lenderPosition.underlyingBalance)
+    );
+    if (!Number.isFinite(underlying)) {
+      return;
+    }
+    setAnimatedUnderlyingUsdt(underlying);
+    lastLpSyncRef.current = Date.now();
+  }, [lenderPosition]);
+
+  useEffect(() => {
+    if (!lenderPosition || !isConnected || !isSupportedChain) {
+      return;
+    }
+    const id = setInterval(() => {
+      setAnimatedUnderlyingUsdt((prev) => {
+        if (prev == null) return prev;
+        const now = Date.now();
+        const last = lastLpSyncRef.current ?? now;
+        const deltaSeconds = (now - last) / 1000;
+        lastLpSyncRef.current = now;
+        const factor = 1 + SUPPLY_RATE_PER_SECOND * deltaSeconds;
+        return prev * factor;
+      });
+    }, 500);
+
+    return () => clearInterval(id);
+  }, [lenderPosition, isConnected, isSupportedChain]);
 
   const borrowQuoteEnabled =
     isConnected &&
@@ -260,6 +324,43 @@ const Home: NextPage = () => {
       queryClient.invalidateQueries({ queryKey: ['poolState'] });
       queryClient.invalidateQueries({ queryKey: ['userPosition', address] });
       queryClient.invalidateQueries({ queryKey: ['userLoans', address] });
+    },
+  });
+
+  const withdrawMutation = useMutation({
+    mutationFn: async () => {
+      if (!address) throw new Error('钱包未连接');
+      if (!withdrawFTokenAmount.trim()) {
+        throw new Error('请输入要取出的 FToken 数量');
+      }
+      // FToken 使用 18 位小数，这里直接按用户输入解析。
+      const amountWei = parseUnits(
+        withdrawFTokenAmount.trim() as `${number}`,
+        18
+      ).toString();
+
+      const tx: WithdrawTx = await buildWithdrawTx({
+        userAddress: address,
+        fTokenAmount: amountWei,
+      });
+      await sendTransactionAsync(toTxArgs(tx.withdraw));
+    },
+    onSuccess: () => {
+      setWithdrawFTokenAmount('');
+      queryClient.invalidateQueries({ queryKey: ['poolState'] });
+      queryClient.invalidateQueries({ queryKey: ['lenderPosition', address] });
+    },
+  });
+
+  const withdrawAllMutation = useMutation({
+    mutationFn: async () => {
+      if (!address) throw new Error('钱包未连接');
+      const tx: WithdrawTx = await buildWithdrawAllTx(address);
+      await sendTransactionAsync(toTxArgs(tx.withdraw));
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['poolState'] });
+      queryClient.invalidateQueries({ queryKey: ['lenderPosition', address] });
     },
   });
 
@@ -425,6 +526,52 @@ const Home: NextPage = () => {
                 {depositMutation.error && (
                   <p style={{ color: 'red', marginTop: '0.5rem' }}>
                     {String(depositMutation.error)}
+                  </p>
+                )}
+              </div>
+
+              <div className={styles.card}>
+                <h3>取回 USDT（赎回 LP）</h3>
+                <p style={{ fontSize: '0.9rem', marginBottom: '0.5rem' }}>
+                  输入要赎回的 FToken 数量（人类可读，例如 1 表示 1 LP 份额）。也可以直接点击“全部赎回”。
+                </p>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.000000000000000001"
+                  placeholder="FToken 数量"
+                  value={withdrawFTokenAmount}
+                  onChange={(e) => setWithdrawFTokenAmount(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem',
+                    marginBottom: '0.5rem',
+                  }}
+                />
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button
+                    type="button"
+                    onClick={() => withdrawMutation.mutate()}
+                    disabled={
+                      withdrawMutation.isPending ||
+                      !withdrawFTokenAmount.trim()
+                    }
+                  >
+                    {withdrawMutation.isPending ? '提交中...' : '部分赎回'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => withdrawAllMutation.mutate()}
+                    disabled={withdrawAllMutation.isPending}
+                  >
+                    {withdrawAllMutation.isPending ? '提交中...' : '全部赎回'}
+                  </button>
+                </div>
+                {(withdrawMutation.error || withdrawAllMutation.error) && (
+                  <p style={{ color: 'red', marginTop: '0.5rem' }}>
+                    {String(
+                      withdrawMutation.error || withdrawAllMutation.error
+                    )}
                   </p>
                 )}
               </div>
@@ -638,6 +785,95 @@ const Home: NextPage = () => {
                       <p>是否活跃: {loan.isActive ? '是' : '否'}</p>
                     </div>
                   ))}
+                </div>
+              )}
+            </>
+          )}
+        </section>
+
+        <section
+          style={{
+            width: '100%',
+            maxWidth: 960,
+            marginBottom: '2rem',
+          }}
+        >
+          <h2 style={{ marginBottom: '1rem' }}>我的 LP 收益</h2>
+          {!isConnected && <p>请先连接钱包。</p>}
+          {isConnected && !isSupportedChain && (
+            <p>当前网络不受支持，请切换到 BSC 主网或 BSC 测试网。</p>
+          )}
+          {isConnected && isSupportedChain && (
+            <>
+              <p
+                style={{
+                  fontSize: '0.9rem',
+                  color: '#666',
+                  marginBottom: '0.75rem',
+                }}
+              >
+                说明：这里展示的是你作为 LP 存入 USDT 后的实时收益情况。
+              </p>
+              {lenderPositionLoading && <p>加载中...</p>}
+              {lenderPositionError && (
+                <p style={{ color: 'red' }}>
+                  加载 LP 仓位失败：{String(lenderPositionError)}
+                </p>
+              )}
+              {lenderPosition && (
+                <div className={styles.grid}>
+                  <div className={styles.card}>
+                    <h2>地址</h2>
+                    <p
+                      style={{ wordBreak: 'break-all' }}
+                      title={lenderPosition.address}
+                    >
+                      {shortAddress(lenderPosition.address)}
+                    </p>
+                  </div>
+                  <div className={styles.card}>
+                    <h2>FToken 余额</h2>
+                    <p>{formatFrom1e18(lenderPosition.fTokenBalance)}</p>
+                  </div>
+                  <div className={styles.card}>
+                    <h2>当前汇率</h2>
+                    <p>{formatFrom1e18(lenderPosition.exchangeRate)}</p>
+                  </div>
+                  <div className={styles.card}>
+                    <h2>当前本金 + 利息 (USDT)</h2>
+                    <p>
+                      {(animatedUnderlyingUsdt ??
+                        parseFloat(
+                          formatUsdtAmount(lenderPosition.underlyingBalance)
+                        )
+                      ).toFixed(8)}
+                    </p>
+                  </div>
+                  <div className={styles.card}>
+                    <h2>历史净存入 (USDT)</h2>
+                    <p>{formatUsdtAmount(lenderPosition.netDeposited)}</p>
+                  </div>
+                  <div className={styles.card}>
+                    <h2>实时利息 (USDT)</h2>
+                    <p>
+                      {(() => {
+                        const net = parseFloat(
+                          formatUsdtAmount(lenderPosition.netDeposited)
+                        );
+                        const cur =
+                          animatedUnderlyingUsdt ??
+                          parseFloat(
+                            formatUsdtAmount(
+                              lenderPosition.underlyingBalance
+                            )
+                          );
+                        if (!Number.isFinite(cur) || !Number.isFinite(net)) {
+                          return formatUsdtAmount(lenderPosition.interest);
+                        }
+                        return (cur - net).toFixed(8);
+                      })()}
+                    </p>
+                  </div>
                 </div>
               )}
             </>

@@ -39,6 +39,16 @@ export interface UserPosition {
   totalCollateral: string;
 }
 
+// LP (lender) position: real-time earnings for depositors.
+export interface LenderPosition {
+  address: string;
+  fTokenBalance: string; // 18 decimals
+  exchangeRate: string; // 18 decimals
+  underlyingBalance: string; // USDT smallest units (6 decimals)
+  netDeposited: string; // currently "0" until backend has DB
+  interest: string; // underlyingBalance - netDeposited
+}
+
 export interface TxCall {
   to: string;
   data: string;
@@ -160,6 +170,12 @@ export async function getLoanHealth(loanId: number): Promise<LoanHealth> {
   return apiGet<LoanHealth>(`/api/v1/loans/${loanId}/health`);
 }
 
+export async function getLenderPosition(
+  address: string
+): Promise<LenderPosition> {
+  return apiGet<LenderPosition>(`/api/v1/users/${address}/lender-position`);
+}
+
 export interface BuildDepositRequest {
   userAddress?: string;
   amount: string; // USDT in smallest units (6 decimals).
@@ -206,6 +222,22 @@ export async function buildLiquidateTx(
   return apiPost<LiquidateTx>("/api/v1/tx/liquidate", payload);
 }
 
+export interface WithdrawTx {
+  withdraw: TxCall;
+}
+
+export interface BuildWithdrawRequest {
+  userAddress?: string;
+  // FToken amount with 18 decimals.
+  fTokenAmount: string;
+}
+
+export async function buildWithdrawTx(
+  payload: BuildWithdrawRequest
+): Promise<WithdrawTx> {
+  return apiPost<WithdrawTx>("/api/v1/tx/withdraw", payload);
+}
+
 export async function getBorrowQuote(
   payload: BuildBorrowQuoteRequest
 ): Promise<BorrowQuote> {
@@ -216,4 +248,16 @@ export async function buildMockUsdtMintTx(
   payload: BuildMockUsdtMintRequest
 ): Promise<TxCall> {
   return apiPost<TxCall>("/api/v1/tx/mock-usdt/mint", payload);
+}
+
+// Convenience helper: withdraw all LP position for a user by composing
+// GET /users/{address}/lender-position and POST /tx/withdraw.
+export async function buildWithdrawAllTx(
+  address: string
+): Promise<WithdrawTx> {
+  const lp = await getLenderPosition(address);
+  return buildWithdrawTx({
+    userAddress: address,
+    fTokenAmount: lp.fTokenBalance,
+  });
 }
